@@ -9,13 +9,20 @@ import argparse
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     description='Numerical tests for scalar advection equation')
-parser.add_argument('-scheme', nargs='+', type=str, help='Transport scheme(s)')
-parser.add_argument('-limiter', type=str, default='minmod', help='Limiter')
+parser.add_argument('-scheme', nargs='+', required=True, type=str,
+                    choices=['upwind', 'upwind2', 'central-diff', 'compact4',
+                             'limited-upwind', 'muscl', 'weno3'],
+                    help='Transport scheme(s)')
+parser.add_argument('-limiter', type=str, default='minmod',
+                    choices=['minmod', 'vanleer', 'koren', 'dummy'],
+                    help='Limiter')
 parser.add_argument('-N', type=int, default=51, help='Number of grid points')
 parser.add_argument('-cfl', type=float, default=1., help='CFL number')
 parser.add_argument('-theta', type=float, default=0.5,
                     help='Theta parameter for time integration')
-parser.add_argument('-test', type=str, default='sin-wave', help='Type of test')
+parser.add_argument('-test', type=str, default='sin',
+                    choices=['sin', 'sin2', 'shock'],
+                    help='Type of test (initial condition)')
 parser.add_argument('-f_tol', type=float, help='Solver absolute tolerance')
 parser.add_argument('-verbose', action='store_true')
 parser.add_argument('-T', type=float, default=1.0,
@@ -158,7 +165,7 @@ def implicit_transport_residual(u_new, u_old, dt, scheme):
         residual = u1[g:-g] - u0[g:-g] \
             + k1 * 0.5 * (u1[g+1:-g+1] - u1[g-1:-g-1]) \
             + k0 * 0.5 * (u0[g+1:-g+1] - u0[g-1:-g-1])
-    elif scheme == 'compact':
+    elif scheme == 'compact4':
         # Abarbanel-Kumar compact scheme
         residual = u1[g:-g] - u0[g:-g] \
             + k1 * 0.5 * (u1[g+1:-g+1] - u1[g-1:-g-1]) \
