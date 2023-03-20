@@ -13,9 +13,12 @@ parser.add_argument('-scheme', nargs='+', required=True, type=str,
                     choices=['upwind', 'upwind2', 'central-diff', 'compact4',
                              'limited-upwind', 'muscl', 'weno3'],
                     help='Transport scheme(s)')
-parser.add_argument('-limiter', type=str, default='minmod',
-                    choices=['minmod', 'vanleer', 'koren', 'dummy'],
-                    help='Limiter')
+parser.add_argument('-limiter', type=str, default='gminmod',
+                    choices=['gminmod', 'vanleer', 'koren',
+                             'dummy'],
+                    help='Which limiter to use')
+parser.add_argument('-gminmod_theta', type=float, default=1.0,
+                    help='Theta for generalized minmod limiter, from 1 to 2')
 parser.add_argument('-N', type=int, default=51, help='Number of grid points')
 parser.add_argument('-cfl', type=float, default=1., help='CFL number')
 parser.add_argument('-theta', type=float, default=0.5,
@@ -63,8 +66,8 @@ def vanleer_phi(r):
     return (r + np.abs(r))/(1 + np.abs(r))
 
 
-def minmod_phi(r):
-    return np.maximum(0., np.minimum(1.0, r))
+def gminmod_phi(r, theta):
+    return np.maximum(0., np.minimum(np.minimum(theta*r, theta), 0.5 * (1+r)))
 
 
 def reconstruct_face_muscl(u):
@@ -83,8 +86,8 @@ def reconstruct_face_muscl(u):
         phi_R = koren_phi(1/rp)
     elif args.limiter == 'vanleer':
         phi = vanleer_phi(rp)
-    elif args.limiter == 'minmod':
-        phi = minmod_phi(rp)
+    elif args.limiter == 'gminmod':
+        phi = gminmod_phi(rp, args.gminmod_theta)
     elif args.limiter == 'dummy':
         phi = rp
     else:
