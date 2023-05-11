@@ -23,6 +23,9 @@ parser.add_argument('-density_normalization', type=float, default=1e18,
                     help='Density normalization factor')
 parser.add_argument('-E_bg', type=float, default=1e6,
                     help='Applied field (V/m)')
+parser.add_argument('-bc_phi', type=str, choices=['dirichlet', 'neumann'],
+                    default='dirichlet',
+                    help='Boundary condition for potential')
 parser.add_argument('-dt', type=float, default=1e-10, help='Time step (s)')
 parser.add_argument('-mu', type=float, default=0.03, help='Mobility (m2/Vs)')
 parser.add_argument('-theta', type=float, default=0.5,
@@ -39,7 +42,9 @@ dx = args.L / args.N
 x = np.linspace(0.5*dx, args.L-0.5*dx, args.N)
 dt = args.dt
 
-print(f'Time step:       {dt:.2e}')
+print(f'dt:              {dt:.2e}')
+print(f'dt CFL:          {dx/abs(args.E_bg*args.mu):.2e}')
+print(f'dt drt:          {c.epsilon_0/(c.e*args.n0*args.mu):.2e}')
 
 
 def add_ghost_cells(u, g=2):
@@ -105,13 +110,18 @@ def field_at_cell_faces(rho, dx, E_bg):
     E = np.zeros(n+1)
 
     # Start with a guess E[0] = 0.
-    E[1:] = np.cumsum(rho) * args.density_normalization * dx * c.e / c.epsilon_0
+    E[1:] = np.cumsum(rho) * args.density_normalization * \
+        dx * c.e / c.epsilon_0
 
-    # The total potential difference should be -E_bg * L
-    correction = np.sum(E[1:]) * dx + E_bg * dx * n
-    E = E - correction
+    if args.bc_phi == 'neumann':
+        E = E + E_bg
+    elif args.bc_phi == 'dirichlet':
+        # The total potential difference should be -E_bg * L
+        current_delta_V = -(np.sum(E[1:-1]) + 0.5 * (E[0] + E[-1])) * dx
+        E_correction = (E_bg * args.L + current_delta_V)/args.L
+        E = E + E_correction
 
-    return E + E_bg
+    return E
 
 
 def implicit_transport_residual(u_new, u_old, dt):
