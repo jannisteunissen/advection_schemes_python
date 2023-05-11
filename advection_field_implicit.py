@@ -28,6 +28,8 @@ parser.add_argument('-bc_phi', type=str, choices=['dirichlet', 'neumann'],
                     help='Boundary condition for potential')
 parser.add_argument('-dt', type=float, default=1e-10, help='Time step (s)')
 parser.add_argument('-mu', type=float, default=0.03, help='Mobility (m2/Vs)')
+parser.add_argument('-mu_ion', type=float, default=2e-4,
+                    help='Ion mobility (m2/Vs)')
 parser.add_argument('-D', type=float, default=0.1,
                     help='Diffusion coefficient (m2/s)')
 parser.add_argument('-theta', type=float, default=0.5,
@@ -48,6 +50,7 @@ dt = args.dt
 mu_safe = max(abs(args.mu), 1e-100)
 D_safe = max(args.D, 1e-100)
 
+print(f'end time:        {args.T:.2e}')
 print(f'dt:              {dt:.2e}')
 print(f'dt CFL:          {dx/abs(args.E_bg*mu_safe):.2e}')
 print(f'dt diff:         {dx**2/(2*D_safe):.2e}')
@@ -134,36 +137,54 @@ def field_at_cell_faces(rho, dx, E_bg):
 def implicit_transport_residual(u_new, u_old, dt):
     residual = np.zeros_like(u_new)
 
-    # Assume periodic boundary conditions
-    g = 2
-    u0 = add_ghost_cells(u_old, g)
-    u1 = add_ghost_cells(u_new, g)
+    # Extract electron and ion density
+    N = u_new.size//2
+    e0, e1 = u_old[:N], u_new[:N]
+    i0, i1 = u_old[N:], u_new[N:]
 
-    v0 = -args.mu * field_at_cell_faces(u_ion - u_old, dx, args.E_bg)
-    v1 = -args.mu * field_at_cell_faces(u_ion - u_new, dx, args.E_bg)
+    # Compute fields
+    E0 = field_at_cell_faces(i0 - e0, dx, args.E_bg)
+    E1 = field_at_cell_faces(i1 - e1, dx, args.E_bg)
+
+    # Add ghost cells
+    g = 2
+    e0, i0 = add_ghost_cells(e0, g), add_ghost_cells(i0, g)
+    e1, i1 = add_ghost_cells(e1, g), add_ghost_cells(i1, g)
+
+    ve0, vi0 = -args.mu * E0, args.mu_ion * E0
+    ve1, vi1 = -args.mu * E1, args.mu_ion * E1
 
     theta = args.theta
 
     # MUSCL scheme
 
     # Reconstruct left and right values at cell faces
-    u0L, u0R = reconstruct_face_muscl(u0)
-    u1L, u1R = reconstruct_face_muscl(u1)
+    e0L, e0R = reconstruct_face_muscl(e0)
+    e1L, e1R = reconstruct_face_muscl(e1)
+    i0L, i0R = reconstruct_face_muscl(i0)
+    i1L, i1R = reconstruct_face_muscl(i1)
 
     # Kurganov-Tadmor / Lax Friedrich approximation
-    flux0 = 0.5 * (v0*u0L + v0*u0R - np.abs(v0) * (u0R-u0L))
-    flux1 = 0.5 * (v1*u1L + v1*u1R - np.abs(v1) * (u1R-u1L))
+    flux_e0 = 0.5 * (ve0*e0L + ve0*e0R - np.abs(ve0) * (e0R-e0L))
+    flux_e1 = 0.5 * (ve1*e1L + ve1*e1R - np.abs(ve1) * (e1R-e1L))
+    flux_i0 = 0.5 * (vi0*i0L + vi0*i0R - np.abs(vi0) * (i0R-i0L))
+    flux_i1 = 0.5 * (vi1*i1L + vi1*i1R - np.abs(vi1) * (i1R-i1L))
 
-    # Residual due to fluxes
-    residual = u1[g:-g] - u0[g:-g] \
-        + theta * dt/dx * (flux1[1:] - flux1[:-1]) \
-        + (1-theta) * dt/dx * (flux0[1:] - flux0[:-1])
+    # Residual due to electron fluxes
+    residual[:N] = e1[g:-g] - e0[g:-g] \
+        + theta * dt/dx * (flux_e1[1:] - flux_e1[:-1]) \
+        + (1-theta) * dt/dx * (flux_e0[1:] - flux_e0[:-1])
 
-    # Add diffusion
+    # Add electron diffusion
     fac = args.D * dt/dx**2
-    residual += u1[g:-g] - u0[g:-g] \
-        - theta * fac * (u1[g-1:-g-1] - 2 * u1[g:-g] + u1[g+1:-g+1]) \
-        - (1-theta) * fac * (u0[g-1:-g-1] - 2 * u0[g:-g] + u0[g+1:-g+1])
+    residual[:N] += e1[g:-g] - e0[g:-g] \
+        - theta * fac * (e1[g-1:-g-1] - 2 * e1[g:-g] + e1[g+1:-g+1]) \
+        - (1-theta) * fac * (e0[g-1:-g-1] - 2 * e0[g:-g] + e0[g+1:-g+1])
+
+    # Residual due to ion fluxes
+    residual[N:] = i1[g:-g] - i0[g:-g] \
+        + theta * dt/dx * (flux_i1[1:] - flux_i1[:-1]) \
+        + (1-theta) * dt/dx * (flux_i0[1:] - flux_i0[:-1])
 
     return residual
 
@@ -176,11 +197,12 @@ def shock_solution(x, t):
 
 def get_u0(test, t0):
     if test == 'shock':
-        u0 = shock_solution(x, t0)
+        e0 = shock_solution(x, t0)
+        i0 = e0
     else:
         raise ValueError('Unknown test ' + test)
 
-    return u0
+    return np.hstack([e0, i0])
 
 
 # Define helper function for Newton-Krylov method
@@ -190,7 +212,7 @@ def my_func(u_new):
 
 t = 0.0
 u = get_u0(args.test, t)
-u_ion = u
+u_init = u.copy()
 
 t0 = time.perf_counter()
 while (t < args.T):
@@ -204,12 +226,15 @@ t1 = time.perf_counter()
 
 print(f'CPU-time: {t1 - t0:.2e}')
 
-E_face = field_at_cell_faces(u_ion - u, dx, args.E_bg)
+N = u.size//2
+E_face = field_at_cell_faces(u[N:] - u[:N], dx, args.E_bg)
 E_cell_center = 0.5 * (E_face[1:] + E_face[:-1])
 
 fig, ax = plt.subplots(2, sharex=True)
-ax[0].plot(x, sol*args.density_normalization, label='solution')
-ax[0].plot(x, u_ion*args.density_normalization, '--', label='initial state')
+ax[0].plot(x, sol[:N]*args.density_normalization, label='n_e')
+ax[0].plot(x, sol[N:]*args.density_normalization, label='n_i')
+ax[0].plot(x, u_init[:N]*args.density_normalization, '--',
+           label='initial state')
 ax[0].legend()
 ax[1].plot(x, E_cell_center, label='field')
 ax[1].hlines(args.E_bg, x.min(), x.max(), colors=['gray'],
