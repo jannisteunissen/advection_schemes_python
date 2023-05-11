@@ -28,6 +28,8 @@ parser.add_argument('-bc_phi', type=str, choices=['dirichlet', 'neumann'],
                     help='Boundary condition for potential')
 parser.add_argument('-dt', type=float, default=1e-10, help='Time step (s)')
 parser.add_argument('-mu', type=float, default=0.03, help='Mobility (m2/Vs)')
+parser.add_argument('-D', type=float, default=0.1,
+                    help='Diffusion coefficient (m2/s)')
 parser.add_argument('-theta', type=float, default=0.5,
                     help='Theta parameter for time integration')
 parser.add_argument('-test', type=str, default='shock',
@@ -42,9 +44,14 @@ dx = args.L / args.N
 x = np.linspace(0.5*dx, args.L-0.5*dx, args.N)
 dt = args.dt
 
+# Avoid division by zero
+mu_safe = max(abs(args.mu), 1e-100)
+D_safe = max(args.D, 1e-100)
+
 print(f'dt:              {dt:.2e}')
-print(f'dt CFL:          {dx/abs(args.E_bg*args.mu):.2e}')
-print(f'dt drt:          {c.epsilon_0/(c.e*args.n0*args.mu):.2e}')
+print(f'dt CFL:          {dx/abs(args.E_bg*mu_safe):.2e}')
+print(f'dt diff:         {dx**2/(2*D_safe):.2e}')
+print(f'dt drt:          {c.epsilon_0/(c.e*args.n0*mu_safe):.2e}')
 
 
 def add_ghost_cells(u, g=2):
@@ -147,9 +154,16 @@ def implicit_transport_residual(u_new, u_old, dt):
     flux0 = 0.5 * (v0*u0L + v0*u0R - np.abs(v0) * (u0R-u0L))
     flux1 = 0.5 * (v1*u1L + v1*u1R - np.abs(v1) * (u1R-u1L))
 
+    # Residual due to fluxes
     residual = u1[g:-g] - u0[g:-g] \
         + theta * dt/dx * (flux1[1:] - flux1[:-1]) \
         + (1-theta) * dt/dx * (flux0[1:] - flux0[:-1])
+
+    # Add diffusion
+    fac = args.D * dt/dx**2
+    residual += u1[g:-g] - u0[g:-g] \
+        - theta * fac * (u1[g-1:-g-1] - 2 * u1[g:-g] + u1[g+1:-g+1]) \
+        - (1-theta) * fac * (u0[g-1:-g-1] - 2 * u0[g:-g] + u0[g+1:-g+1])
 
     return residual
 
@@ -176,7 +190,7 @@ def my_func(u_new):
 
 t = 0.0
 u = get_u0(args.test, t)
-u_ion = np.roll(u, 5)
+u_ion = u
 
 t0 = time.perf_counter()
 while (t < args.T):
@@ -195,7 +209,7 @@ E_cell_center = 0.5 * (E_face[1:] + E_face[:-1])
 
 fig, ax = plt.subplots(2, sharex=True)
 ax[0].plot(x, sol*args.density_normalization, label='solution')
-ax[0].plot(x, u_ion*args.density_normalization, label='initial state')
+ax[0].plot(x, u_ion*args.density_normalization, '--', label='initial state')
 ax[0].legend()
 ax[1].plot(x, E_cell_center, label='field')
 ax[1].hlines(args.E_bg, x.min(), x.max(), colors=['gray'],
