@@ -52,9 +52,13 @@ D_safe = max(args.D, 1e-100)
 
 print(f'end time:        {args.T:.2e}')
 print(f'dt:              {dt:.2e}')
-print(f'dt CFL:          {dx/abs(args.E_bg*mu_safe):.2e}')
-print(f'dt diff:         {dx**2/(2*D_safe):.2e}')
-print(f'dt drt:          {c.epsilon_0/(c.e*args.n0*mu_safe):.2e}')
+print(f'dt CFL (t0):     {dx/abs(args.E_bg*mu_safe):.2e}')
+print(f'dt diff (t0):    {dx**2/(2*D_safe):.2e}')
+print(f'dt drt (t0):     {c.epsilon_0/(c.e*args.n0*mu_safe):.2e}')
+
+
+def get_alpha(E):
+    return 0.025 * E + np.exp(-1e7/E)
 
 
 def add_ghost_cells(u, g=2):
@@ -142,9 +146,11 @@ def implicit_transport_residual(u_new, u_old, dt):
     e0, e1 = u_old[:N], u_new[:N]
     i0, i1 = u_old[N:], u_new[N:]
 
-    # Compute fields
+    # Compute fields at cell faces and cell centers
     E0 = field_at_cell_faces(i0 - e0, dx, args.E_bg)
     E1 = field_at_cell_faces(i1 - e1, dx, args.E_bg)
+    E0_cc = 0.5 * (E0[1:] + E0[:-1])
+    E1_cc = 0.5 * (E1[1:] + E1[:-1])
 
     # Add ghost cells
     g = 2
@@ -153,6 +159,10 @@ def implicit_transport_residual(u_new, u_old, dt):
 
     ve0, vi0 = -args.mu * E0, args.mu_ion * E0
     ve1, vi1 = -args.mu * E1, args.mu_ion * E1
+
+    # Compute source term
+    src0 = args.mu * E0_cc * get_alpha(E0_cc) * e0[g:-g]
+    src1 = args.mu * E1_cc * get_alpha(E1_cc) * e1[g:-g]
 
     theta = args.theta
 
@@ -177,7 +187,7 @@ def implicit_transport_residual(u_new, u_old, dt):
 
     # Add electron diffusion
     fac = args.D * dt/dx**2
-    residual[:N] += e1[g:-g] - e0[g:-g] \
+    residual[:N] += \
         - theta * fac * (e1[g-1:-g-1] - 2 * e1[g:-g] + e1[g+1:-g+1]) \
         - (1-theta) * fac * (e0[g-1:-g-1] - 2 * e0[g:-g] + e0[g+1:-g+1])
 
@@ -185,6 +195,10 @@ def implicit_transport_residual(u_new, u_old, dt):
     residual[N:] = i1[g:-g] - i0[g:-g] \
         + theta * dt/dx * (flux_i1[1:] - flux_i1[:-1]) \
         + (1-theta) * dt/dx * (flux_i0[1:] - flux_i0[:-1])
+
+    # Add source terms
+    residual[:N] += -theta * dt * src0 - (1-theta) * dt * src1
+    residual[N:] += -theta * dt * src0 - (1-theta) * dt * src1
 
     return residual
 
