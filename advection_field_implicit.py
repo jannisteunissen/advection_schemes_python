@@ -53,6 +53,7 @@ D_safe = max(args.D, 1e-100)
 print(f'dx:              {dx:.2e}')
 print(f'end time:        {args.T:.2e}')
 print(f'dt:              {dt:.2e}')
+print(f'num. steps:      {int(args.T/dt+0.5)}')
 print(f'dt CFL (t0):     {dx/abs(args.E_bg*mu_safe):.2e}')
 print(f'dt diff (t0):    {dx**2/(2*D_safe):.2e}')
 print(f'dt drt (t0):     {c.epsilon_0/(c.e*args.n0*mu_safe):.2e}')
@@ -144,7 +145,7 @@ def field_at_cell_faces(rho, dx, E_bg):
     return E
 
 
-def implicit_transport_residual(u_new, u_old, dt):
+def implicit_model_residual(u_new, u_old, dt):
     residual = np.zeros_like(u_new)
 
     # Extract electron and ion density
@@ -167,8 +168,8 @@ def implicit_transport_residual(u_new, u_old, dt):
     ve1, vi1 = -args.mu * E1, args.mu_ion * E1
 
     # Compute source term
-    src0 = args.mu * E0_cc * get_alpha(E0_cc) * e0[g:-g]
-    src1 = args.mu * E1_cc * get_alpha(E1_cc) * e1[g:-g]
+    src0 = args.mu * np.abs(E0_cc) * get_alpha(E0_cc) * e0[g:-g]
+    src1 = args.mu * np.abs(E1_cc) * get_alpha(E1_cc) * e1[g:-g]
 
     theta = args.theta
 
@@ -227,7 +228,7 @@ def get_u0(test, t0):
 
 def my_func(u_new):
     """Helper function for Newton-Krylov method"""
-    return implicit_transport_residual(u_new, u_old, dt)
+    return implicit_model_residual(u_new, u_old, dt)
 
 
 def my_callback(x, f):
