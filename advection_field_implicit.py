@@ -50,6 +50,7 @@ dt = args.dt
 mu_safe = max(abs(args.mu), 1e-100)
 D_safe = max(args.D, 1e-100)
 
+print(f'dx:              {dx:.2e}')
 print(f'end time:        {args.T:.2e}')
 print(f'dt:              {dt:.2e}')
 print(f'dt CFL (t0):     {dx/abs(args.E_bg*mu_safe):.2e}')
@@ -58,13 +59,18 @@ print(f'dt drt (t0):     {c.epsilon_0/(c.e*args.n0*mu_safe):.2e}')
 
 
 def get_alpha(E):
-    return 0.025 * E + np.exp(-1e7/E)
+    """Get ionization coefficient alpha [1/m] from the electric field [V/m]"""
+    E_safe = np.maximum(np.abs(E), 1)  # Avoid division by zero
+    return 0.025 * E + np.exp(-1e7/E_safe)
 
 
 def add_ghost_cells(u, g=2):
+    """Add ghost cells to an array"""
     N = u.size
     ug = np.zeros(N+2*g)
     ug[g:-g] = u
+
+    # Set ghost values to zero
     ug[:g] = 0
     ug[-g:] = 0
     return ug
@@ -219,11 +225,17 @@ def get_u0(test, t0):
     return np.hstack([e0, i0])
 
 
-# Define helper function for Newton-Krylov method
 def my_func(u_new):
+    """Helper function for Newton-Krylov method"""
     return implicit_transport_residual(u_new, u_old, dt)
 
 
+def my_callback(x, f):
+    """To keep track of the number of iterations"""
+    my_callback.n_iterations += 1
+
+
+my_callback.n_iterations = 0
 t = 0.0
 u = get_u0(args.test, t)
 u_init = u.copy()
@@ -233,12 +245,14 @@ while (t < args.T):
     u_old = u
     u_guess = u
     sol = newton_krylov(my_func, u_guess, method='lgmres',
-                        verbose=args.verbose, f_tol=args.f_tol)
+                        verbose=args.verbose, f_tol=args.f_tol,
+                        callback=my_callback)
     u = sol
     t += dt
 t1 = time.perf_counter()
 
-print(f'CPU-time: {t1 - t0:.2e}')
+print(f'num. iterations: {my_callback.n_iterations}')
+print(f'Total CPU time:  {t1 - t0:.2e}')
 
 N = u.size//2
 E_face = field_at_cell_faces(u[N:] - u[:N], dx, args.E_bg)
