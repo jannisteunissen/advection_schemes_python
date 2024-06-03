@@ -22,7 +22,8 @@ parser.add_argument('-gminmod_theta', type=float, default=1.0,
 parser.add_argument('-N', type=int, default=51, help='Number of grid points')
 parser.add_argument('-cfl', type=float, default=1., help='CFL number')
 parser.add_argument('-theta', type=float, default=0.5,
-                    help='Theta parameter for time integration')
+                    help='Theta parameter for time integration, 1.0 is ' +
+                    'backward Euler, 0.0 forward Euler, 0.5 is 2nd order')
 parser.add_argument('-test', type=str, default='sin',
                     choices=['sin', 'sin2', 'shock'],
                     help='Type of test (initial condition)')
