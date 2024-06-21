@@ -20,7 +20,8 @@ parser.add_argument('-limiter', type=str, default='gminmod',
 parser.add_argument('-gminmod_theta', type=float, default=1.0,
                     help='Theta for generalized minmod limiter, from 1 to 2')
 parser.add_argument('-N', type=int, default=51, help='Number of grid points')
-parser.add_argument('-cfl', type=float, default=1., help='CFL number')
+parser.add_argument('-cfl', type=float, nargs='+', default=[1.],
+                    help='CFL number(s)')
 parser.add_argument('-theta', type=float, default=0.5,
                     help='Theta parameter for time integration, 1.0 is ' +
                     'backward Euler, 0.0 forward Euler, 0.5 is 2nd order')
@@ -40,13 +41,7 @@ L = 1.0
 dx = L / args.N
 x = np.linspace(0.5*dx, L-0.5*dx, args.N)
 v = args.v
-dt = args.cfl * dx/abs(v)
 t_end = args.T * L/abs(v)
-n_steps = int(np.ceil(t_end/dt))
-dt = t_end/n_steps
-
-print(f'Number of steps: {n_steps}')
-print(f'Time step:       {dt:.2e}')
 
 
 def add_periodic_ghost_cells(u, g=2):
@@ -251,29 +246,34 @@ def get_u0_and_solution(test, t0, t1):
 fig, ax = plt.subplots(layout='tight')
 
 for scheme in args.scheme:
+    for cfl in args.cfl:
+        dt = cfl * dx/abs(v)
+        n_steps = int(np.ceil(t_end/dt))
+        dt = t_end/n_steps
 
-    # Define helper function for Newton-Krylov method
-    def my_func(u_new):
-        return implicit_transport_residual(u_new, u_old, dt, scheme)
+        # Define helper function for Newton-Krylov method
+        def my_func(u_new):
+            return implicit_transport_residual(u_new, u_old, dt, scheme)
 
-    t = 0.0
-    u, u_sol = get_u0_and_solution(args.test, t, t_end)
+        t = 0.0
+        u, u_sol = get_u0_and_solution(args.test, t, t_end)
 
-    t0 = time.perf_counter()
-    for i in range(n_steps):
-        u_old = u
-        u_guess = u
-        sol = newton_krylov(my_func, u_guess, method='lgmres',
-                            verbose=args.verbose, f_tol=args.f_tol)
-        u = sol
-        t += dt
-    t1 = time.perf_counter()
+        t0 = time.perf_counter()
+        for i in range(n_steps):
+            u_old = u
+            u_guess = u
+            sol = newton_krylov(my_func, u_guess, method='lgmres',
+                                verbose=args.verbose, f_tol=args.f_tol)
+            u = sol
+            t += dt
+        t1 = time.perf_counter()
 
-    print(f'{scheme:15} CPU-time: {t1 - t0:.2e}')
-    ax.plot(x, sol, label=scheme)
+        print(f'{scheme:15} CFL = {cfl:.2f} CPU-time: {t1 - t0:.2e}')
+        ax.plot(x, sol, label=f'{scheme} CFL = {cfl:.2f}')
 
 ax.plot(x, u_sol, '--', label='solution')
-ax.set_title(f'Theta = {args.theta:.2f}, CFL = {args.cfl:.2f}')
+ax.set_xlabel('x')
+ax.set_title(f'Theta = {args.theta:.2f}')
 ax.legend()
 
 if args.savefig is not None:
