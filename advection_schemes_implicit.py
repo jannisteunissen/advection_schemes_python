@@ -29,6 +29,7 @@ parser.add_argument('-test', type=str, default='sin',
                     help='Type of test (initial condition)')
 parser.add_argument('-f_tol', type=float, help='Solver absolute tolerance')
 parser.add_argument('-verbose', action='store_true')
+parser.add_argument('-savefig', type=str, help='Save figure to this file')
 parser.add_argument('-T', type=float, default=1.0,
                     help='End time (1 equals one period)')
 parser.add_argument('-v', type=float, default=1.0,
@@ -247,6 +248,8 @@ def get_u0_and_solution(test, t0, t1):
     return u0, u1
 
 
+fig, ax = plt.subplots(layout='tight')
+
 for scheme in args.scheme:
 
     # Define helper function for Newton-Krylov method
@@ -267,8 +270,14 @@ for scheme in args.scheme:
     t1 = time.perf_counter()
 
     print(f'{scheme:15} CPU-time: {t1 - t0:.2e}')
-    plt.plot(x, sol, label=scheme)
+    ax.plot(x, sol, label=scheme)
 
-plt.plot(x, u_sol, '--', label='solution')
-plt.legend()
-plt.show()
+ax.plot(x, u_sol, '--', label='solution')
+ax.set_title(f'Theta = {args.theta:.2f}, CFL = {args.cfl:.2f}')
+ax.legend()
+
+if args.savefig is not None:
+    plt.savefig(args.savefig, bbox_inches='tight', dpi=200)
+    print(f'Saved {args.savefig}')
+else:
+    plt.show()
